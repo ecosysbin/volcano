@@ -19,6 +19,7 @@ package framework
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -57,9 +58,9 @@ type Session struct {
 
 	TotalResource  *api.Resource
 	TotalGuarantee *api.Resource
-	// podGroupStatus cache podgroup status during schedule
+	// PodGroupOldState contains podgroup status and annotations during schedule
 	// This should not be mutated after initiated
-	podGroupStatus map[api.JobID]scheduling.PodGroupStatus
+	api.PodGroupOldState
 
 	Jobs           map[api.JobID]*api.JobInfo
 	Nodes          map[string]*api.NodeInfo
@@ -81,7 +82,10 @@ type Session struct {
 	// hyperNode can gain a better performance, the lower the tier of hyperNode, the better performance.
 	HyperNodesSetByTier map[int]sets.Set[string]
 	// RealNodesList maps hyperNode Name -> nodes under the hyperNode.
-	RealNodesList             map[string][]*api.NodeInfo
+	RealNodesList   map[string][]*api.NodeInfo
+	HyperNodesTiers []int
+	// HyperNodesDescendants contains a map of hyperNode Name -> all descendants of the hyperNode,
+	HyperNodesDescendants     map[string]sets.Set[string]
 	HyperNodesReadyToSchedule bool
 
 	plugins             map[string]Plugin
@@ -129,8 +133,10 @@ func openSession(cache cache.Cache) *Session {
 
 		TotalResource:  api.EmptyResource(),
 		TotalGuarantee: api.EmptyResource(),
-		podGroupStatus: map[api.JobID]scheduling.PodGroupStatus{},
-
+		PodGroupOldState: api.PodGroupOldState{
+			Status:      map[api.JobID]scheduling.PodGroupStatus{},
+			Annotations: map[api.JobID]map[string]string{},
+		},
 		Jobs:           map[api.JobID]*api.JobInfo{},
 		Nodes:          map[string]*api.NodeInfo{},
 		CSINodesStatus: map[string]*api.CSINodeStatusInfo{},
@@ -172,7 +178,8 @@ func openSession(cache cache.Cache) *Session {
 	ssn.Jobs = snapshot.Jobs
 	for _, job := range ssn.Jobs {
 		if job.PodGroup != nil {
-			ssn.podGroupStatus[job.UID] = *job.PodGroup.Status.DeepCopy()
+			ssn.PodGroupOldState.Status[job.UID] = *job.PodGroup.Status.DeepCopy()
+			ssn.PodGroupOldState.Annotations[job.UID] = job.PodGroup.GetAnnotations()
 		}
 
 		if vjr := ssn.JobValid(job); vjr != nil {
@@ -196,13 +203,14 @@ func openSession(cache cache.Cache) *Session {
 	}
 	ssn.NodeList = util.GetNodeList(snapshot.Nodes, snapshot.NodeList)
 	ssn.HyperNodesSetByTier = snapshot.HyperNodesSetByTier
+	parseHyperNodesTiers(ssn)
+	ssn.HyperNodesDescendants = snapshot.HyperNodesDescendants
 	ssn.RealNodesList = util.GetRealNodesListByHyperNode(snapshot.RealNodesSet, snapshot.Nodes)
 	ssn.HyperNodesReadyToSchedule = snapshot.HyperNodesReadyToSchedule
 	ssn.Nodes = snapshot.Nodes
 	ssn.CSINodesStatus = snapshot.CSINodesStatus
 	ssn.RevocableNodes = snapshot.RevocableNodes
 	ssn.Queues = snapshot.Queues
-	ssn.NamespaceInfo = snapshot.NamespaceInfo
 	// calculate all nodes' resource only once in each schedule cycle, other plugins can clone it when need
 	for _, n := range ssn.Nodes {
 		ssn.TotalResource.Add(n.Allocatable)
@@ -212,6 +220,20 @@ func openSession(cache cache.Cache) *Session {
 		ssn.UID, len(ssn.Jobs), len(ssn.Queues))
 
 	return ssn
+}
+
+func parseHyperNodesTiers(ssn *Session) {
+	if ssn.HyperNodesSetByTier == nil || len(ssn.HyperNodesSetByTier) == 0 {
+		return
+	}
+
+	// sort to guarantee the traverse order is from down to top.
+	var tiers []int
+	for tier := range ssn.HyperNodesSetByTier {
+		tiers = append(tiers, tier)
+	}
+	sort.Ints(tiers)
+	ssn.HyperNodesTiers = tiers
 }
 
 // updateQueueStatus updates allocated field in queue status on session close.

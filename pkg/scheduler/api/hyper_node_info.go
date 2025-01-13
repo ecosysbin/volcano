@@ -294,6 +294,15 @@ func (hni *HyperNodesInfo) GetAncestors(name string) sets.Set[string] {
 	return ancestors
 }
 
+// GetAllDescendants returns all descendants of all HyperNodes.
+func (hni *HyperNodesInfo) GetAllDescendants() map[string]sets.Set[string] {
+	descendants := make(map[string]sets.Set[string])
+	for name := range hni.hyperNodes {
+		descendants[name] = hni.GetDescendants(name)
+	}
+	return descendants
+}
+
 // GetDescendants returns all descendants of a given HyperNode.
 func (hni *HyperNodesInfo) GetDescendants(hyperNodeName string) sets.Set[string] {
 	queue := []string{hyperNodeName}

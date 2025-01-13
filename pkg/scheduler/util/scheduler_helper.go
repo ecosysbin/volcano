@@ -295,3 +295,45 @@ func ConvertRes2ResList(res *api.Resource) v1.ResourceList {
 	}
 	return rl
 }
+
+// Find the hyperNode to which the node belongs.
+func FindHyperNodeOfNode(nodeName string, hyperNodes map[string][]*api.NodeInfo) string {
+	for hyperNode, nodes := range hyperNodes {
+		for _, node := range nodes {
+			if node.Name == nodeName {
+				return hyperNode
+			}
+		}
+	}
+	return ""
+}
+
+// FindJobTaskNumOfHyperNode find out the number of tasks in the job that belong to the hyperNode.
+func FindJobTaskNumOfHyperNode(hyperNodeName string, job *api.JobInfo, hyperNodes map[string][]*api.NodeInfo) int {
+	nodes := hyperNodes[hyperNodeName]
+	taskCount := 0
+	for _, task := range job.Tasks {
+		for _, node := range nodes {
+			if node.Name == task.NodeName {
+				taskCount++
+				break
+			}
+		}
+	}
+	return taskCount
+}
+
+// FindLCAHyperNode finds out the common ancestor of the current hypernode and the hypernode where the job is scheduled
+func FindLCAHyperNode(hyperNodeName string, jobHyperNode string, hyperNodesTiers []int, hyperNodesListByTier map[int]sets.Set[string], hyperNodesDescendants map[string]sets.Set[string]) (string, int) {
+	for index, tier := range hyperNodesTiers {
+		for hyperNode := range hyperNodesListByTier[tier] {
+			hyperNodeSet := hyperNodesDescendants[hyperNode]
+			if hyperNodeSet.Has(hyperNodeName) {
+				if jobHyperNode == "" || hyperNodeSet.Has(jobHyperNode) {
+					return hyperNode, index + 1
+				}
+			}
+		}
+	}
+	return "", -1
+}

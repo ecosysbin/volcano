@@ -65,6 +65,7 @@ import (
 	topologyinformerv1alpha1 "volcano.sh/apis/pkg/client/informers/externalversions/topology/v1alpha1"
 	"volcano.sh/volcano/cmd/scheduler/app/options"
 	"volcano.sh/volcano/pkg/features"
+	"volcano.sh/volcano/pkg/scheduler/api"
 	schedulingapi "volcano.sh/volcano/pkg/scheduler/api"
 	volumescheduling "volcano.sh/volcano/pkg/scheduler/capabilities/volumebinding"
 	"volcano.sh/volcano/pkg/scheduler/metrics"
@@ -1402,6 +1403,7 @@ func (sc *SchedulerCache) Snapshot() *schedulingapi.ClusterInfo {
 	// Snapshot hyperNodes.
 	sc.HyperNodesInfo.Lock()
 	snapshot.HyperNodesSetByTier = sc.HyperNodesInfo.HyperNodesSetByTier()
+	snapshot.HyperNodesDescendants = sc.HyperNodesInfo.GetAllDescendants()
 	snapshot.RealNodesSet = sc.HyperNodesInfo.RealNodesSet()
 	snapshot.HyperNodesReadyToSchedule = sc.HyperNodesInfo.Ready()
 	sc.HyperNodesInfo.Unlock()
@@ -1562,6 +1564,10 @@ func (sc *SchedulerCache) UpdateJobStatus(job *schedulingapi.JobInfo, updatePG b
 		if err != nil {
 			return nil, err
 		}
+		sc.Mutex.Lock()
+		sc.Jobs[job.UID].PodGroup.GetAnnotations()[api.TopologyAllocateLCAHyperNode] = job.PodGroup.GetAnnotations()[api.TopologyAllocateLCAHyperNode]
+		sc.Mutex.Unlock()
+
 		job.PodGroup = pg
 	}
 

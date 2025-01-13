@@ -27,6 +27,7 @@ type ClusterInfo struct {
 	Jobs                      map[JobID]*JobInfo
 	Nodes                     map[string]*NodeInfo
 	HyperNodesSetByTier       map[int]sets.Set[string]
+	HyperNodesDescendants     map[string]sets.Set[string]
 	RealNodesSet              map[string]sets.Set[string]
 	HyperNodesReadyToSchedule bool
 	Queues                    map[QueueID]*QueueInfo
