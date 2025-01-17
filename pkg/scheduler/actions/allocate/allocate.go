@@ -17,7 +17,6 @@
 package allocate
 
 import (
-	"sort"
 	"time"
 
 	"k8s.io/klog/v2"
@@ -34,7 +33,6 @@ type Action struct {
 	session *framework.Session
 	// configured flag for error cache
 	enablePredicateErrorCache bool
-	hyperNodesTiers           []int
 
 	// hyperNodeScoresByJob stores job total score for all available hyperNodes, this is used for accumulate
 	// all nodes' scores in each available hyperNode only when job has hard network topology constrains
@@ -45,7 +43,6 @@ type Action struct {
 func New() *Action {
 	return &Action{
 		enablePredicateErrorCache: true, // default to enable it
-		hyperNodesTiers:           []int{},
 		hyperNodeScoresByJob:      make(map[string]map[string]float64),
 	}
 }
@@ -61,26 +58,11 @@ func (alloc *Action) parseArguments(ssn *framework.Session) {
 	arguments.GetBool(&alloc.enablePredicateErrorCache, conf.EnablePredicateErrCacheKey)
 }
 
-func (alloc *Action) parseHyperNodesTiers(ssn *framework.Session) {
-	if ssn.HyperNodesSetByTier == nil || len(ssn.HyperNodesSetByTier) == 0 {
-		return
-	}
-
-	// sort to guarantee the traverse order is from down to top.
-	var tiers []int
-	for tier := range ssn.HyperNodesSetByTier {
-		tiers = append(tiers, tier)
-	}
-	sort.Ints(tiers)
-	alloc.hyperNodesTiers = tiers
-}
-
 func (alloc *Action) Execute(ssn *framework.Session) {
 	klog.V(5).Infof("Enter Allocate ...")
 	defer klog.V(5).Infof("Leaving Allocate ...")
 
 	alloc.parseArguments(ssn)
-	alloc.parseHyperNodesTiers(ssn)
 
 	// the allocation for pod may have many stages
 	// 1. pick a queue named Q (using ssn.QueueOrderFn)
@@ -241,7 +223,7 @@ func (alloc *Action) allocateResourceForTasksWithTopology(tasks *util.PriorityQu
 	jobAllocatedHyperNode := job.PodGroup.Annotations[api.JobAllocatedHyperNode]
 
 	// Find a suitable hyperNode in one tier from down to top everytime to ensure that the selected hyperNode spans the least tier.
-	for _, tier := range alloc.hyperNodesTiers {
+	for _, tier := range ssn.HyperNodesTiers {
 		if tier > highestAllowedTier {
 			klog.V(4).ErrorS(nil, "Skip search for higher tier cause highest allowed tier reached", "jobName", job.UID, "highestAllowedTier", highestAllowedTier, "tier", tier)
 			break
