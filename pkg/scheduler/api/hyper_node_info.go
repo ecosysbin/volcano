@@ -447,6 +447,22 @@ func (hni *HyperNodesInfo) getMembers(selector topologyv1alpha1.MemberSelector, 
 			}
 		}
 	}
+	if selector.LabelMatch != nil {
+		if len(selector.LabelMatch.Labels) == 0 && len(selector.LabelMatch.MatchLabels) == 0 {
+			return members
+		}
+		labelSelector, err := metav1.LabelSelectorAsSelector(selector.LabelMatch)
+		if err != nil {
+			klog.ErrorS(err, "Failed to convert labelMatch to labelSelector", "LabelMatch", selector.LabelMatch)
+			return sets.Set[string]{}
+		}
+		for _, node := range nodes {
+			nodeLabels := labels.Set(node.Labels)
+			if labelSelector.Matches(nodeLabels) {
+				members.Insert(node.Name)
+			}
+		}
+	}
 	return members
 }
 
